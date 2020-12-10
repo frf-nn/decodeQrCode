@@ -8,7 +8,7 @@ const [ex, ey] = [1138, 356];
 const [ox, oy] = [8, 8];
 const [w, h] = [64, 64];
 // const [rows, cols, rotz ] = [2, 2, 2];
-const [rows, cols, rotz ] = [4, 4, 4];
+const [rows, cols, rotz ] = [4, 4, 8];
 const whiteWidth = 16;
 
 const genCells = (image) => {
@@ -66,6 +66,22 @@ const getCellLine = (cell, num, width) => {
 const vertWhiteLine = new Jimp(whiteWidth, h, '#FFFFFF');
 const horizWhiteLine = new Jimp(w, whiteWidth, '#FFFFFF');
 
+const rotateImageClockwise = (image) => {
+    const bitmap = Buffer.alloc(image.bitmap.data.length);
+
+    image.scan(0, 0, image.bitmap.width, image.bitmap.height, function(x, y, idx) {
+        const _x = this.bitmap.width - 1 - y;
+        const _y = x;
+        const _idx = this.bitmap.width * _y + _x << 2;
+
+        const data = this.bitmap.data.readUInt32BE(idx);
+        bitmap.writeUInt32BE(data, _idx);
+    });
+    image.bitmap.data = Buffer.from(bitmap);
+
+    return image;
+}
+
 const transformCellCache = new WeakMap();
 
 const transformCell = (cell, num) => {
@@ -77,7 +93,7 @@ const transformCell = (cell, num) => {
     } else {
         const cloneCell = cell.clone();
 
-        // const rotCell = cloneCell.clone().rotate(90);
+        const rotCell = rotateImageClockwise(cloneCell.clone());
 
         switch (num) {
         case 0:
@@ -92,8 +108,6 @@ const transformCell = (cell, num) => {
         case 3:
             res = cloneCell.flip(true, true);
             break;
-
-            /*
         case 4:
             res = rotCell;
             break;
@@ -106,7 +120,6 @@ const transformCell = (cell, num) => {
         case 7:
             res = rotCell.flip(true, true);
             break;
-            */
         }
     }
     cached[num] = res;
