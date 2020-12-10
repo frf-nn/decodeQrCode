@@ -1,0 +1,16 @@
+{
+  "name": "decode-qr-code",
+  "version": "1.0.0",
+  "description": "",
+  "main": "detectQrCode.js",
+  "scripts": {
+    "start": "node detectQrCode.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "jimp": "^0.16.1",
+    "qrcode-reader": "^1.0.4"
+  }
+}
