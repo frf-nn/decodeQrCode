@@ -2,24 +2,26 @@ const Jimp = require('jimp');
 const QrCodeReader = require('qrcode-reader');
 
 const imageFile = './i6ZXZ4-uiUU.jpg';
+const resName = './detectQrCode.jpeg'
 
 const [sx, sy] = [844, 60];
 const [ex, ey] = [1138, 356];
 const [ox, oy] = [8, 8];
 const [w, h] = [64, 64];
-// const [rows, cols, rotz ] = [2, 2, 2];
-const [rows, cols, rotz ] = [4, 4, 8];
+const [rows, cols, rotz ] = [4, 4, 4];
 const whiteWidth = 16;
+const outState = false;
+const writeImages = false;
 
 const genCells = (image) => {
     const cells = [];
 
     image.crop(sx, sy, ex - sx, ey - sy);
 
-    for (let r = 0; r < 4; r++) {
+    for (let r = 0; r < rows; r++) {
         const cy = oy + (oy + h) * r;
 
-        for (let c = 0; c < 4; c++) {
+        for (let c = 0; c < cols; c++) {
             const cx = ox + (ox + w) * c;
             const cell = image.clone();
 
@@ -66,18 +68,34 @@ const getCellLine = (cell, num, width) => {
 const vertWhiteLine = new Jimp(whiteWidth, h, '#FFFFFF');
 const horizWhiteLine = new Jimp(w, whiteWidth, '#FFFFFF');
 
-const rotateImageClockwise = (image) => {
-    const bitmap = Buffer.alloc(image.bitmap.data.length);
+const rotateSquareImageClockwise = (image, rot) => {
+    if (rot !== 0) {
+        const bitmap = Buffer.alloc(image.bitmap.data.length);
 
-    image.scan(0, 0, image.bitmap.width, image.bitmap.height, function(x, y, idx) {
-        const _x = this.bitmap.width - 1 - y;
-        const _y = x;
-        const _idx = this.bitmap.width * _y + _x << 2;
+        image.scan(0, 0, image.bitmap.width, image.bitmap.height, function(x, y, idx) {
+            let _x, _y, _idx;
 
-        const data = this.bitmap.data.readUInt32BE(idx);
-        bitmap.writeUInt32BE(data, _idx);
-    });
-    image.bitmap.data = Buffer.from(bitmap);
+            switch (rot) {
+            case 1:
+                _x = this.bitmap.width - 1 - y;
+                _y = x;
+                break;
+            case 2:
+                _x = this.bitmap.width - 1 - x;
+                _y = this.bitmap.height - 1 - y;
+                break;
+            case 3:
+                _x = y;
+                _y = this.bitmap.height - 1 - x;
+                break;
+            }
+            _idx = this.bitmap.width * _y + _x << 2;
+
+            const data = this.bitmap.data.readUInt32BE(idx);
+            bitmap.writeUInt32BE(data, _idx);
+        });
+        image.bitmap.data = Buffer.from(bitmap);
+    }
 
     return image;
 }
@@ -91,36 +109,7 @@ const transformCell = (cell, num) => {
     if (typeof cached[num] !== 'undefined') {
         res = cached[num];
     } else {
-        const cloneCell = cell.clone();
-
-        const rotCell = rotateImageClockwise(cloneCell.clone());
-
-        switch (num) {
-        case 0:
-            res = cloneCell;
-            break;
-        case 1:
-            res = cloneCell.flip(true, false);
-            break;
-        case 2:
-            res = cloneCell.flip(false, true);
-            break;
-        case 3:
-            res = cloneCell.flip(true, true);
-            break;
-        case 4:
-            res = rotCell;
-            break;
-        case 5:
-            res = rotCell.flip(true, false);
-            break;
-        case 6:
-            res = rotCell.flip(false, true);
-            break;
-        case 7:
-            res = rotCell.flip(true, true);
-            break;
-        }
+        res = rotateSquareImageClockwise(cell.clone(), num);
     }
     cached[num] = res;
     transformCellCache.set(cell, cached);
@@ -132,10 +121,10 @@ const genImage = (cells, ndxs, rots) => {
     const newImage = new Jimp(ox * 2 + w * 4, oy * 2 + h * 4, '#000080');
 
     let ndx = 0;
-    for (let r = 0; r < 4; r++) {
+    for (let r = 0; r < rows; r++) {
         const y = r * h;
 
-        for (let c = 0; c < 4; c++) {
+        for (let c = 0; c < cols; c++) {
             const x = c * w;
 
             const ncell = ndxs[ndx];
@@ -171,14 +160,14 @@ const checkState = async (cells, ndxs, rots) => {
         const value = await checkImage(image);
 
         await new Promise((res, rej) => {
-            image.write(`${imageFile}.jpeg`, (err, img) => (err ? rej(err) : res(img)));
+            image.write(`${resName}`, (err, img) => (err ? rej(err) : res(img)));
         }) 
 
-        console.log('value', value);
-        return true;
+        // console.log('value', value);
+        return value;
     } catch (e) {
-        console.log('error', e);
-        return false;
+        // console.log('error', e);
+        return null;
     }
 };
 
@@ -225,6 +214,8 @@ const isSameLine = (prevCell, lastCell, prevNum, lastNum, width) => {
 
     return isSame;
 }
+
+let imgNdx = 0;
 
 const explore = async (cells, { possible, used, path, rots }) => {
     for (let ndx = 0; ndx < possible.length; ndx++) {
@@ -317,21 +308,53 @@ const explore = async (cells, { possible, used, path, rots }) => {
                     }
                 }
 
+                if (writeImages) {
+                    const image = genImage(cells, state.used, state.rots);
+                    const name = `0000${imgNdx}`.substring((`${imgNdx}`.length));
+
+                    await new Promise((res, rej) => {
+                        image.write(`./${name}.jpeg`, (err, img) => (err ? rej(err) : res(img)));
+                    })
+                    imgNdx += 1;
+                }
+
                 if (isGood) {
-                    // console.log('state', JSON.stringify(state));
-                    process.stdout.write('.');
+                    if (outState) {
+                        console.log('state', JSON.stringify(state));
+                    } else {
+                        process.stdout.write('.');
+                    }
+
                     await explore(cells, state);
                 }
             } else {
-                // console.log('state', JSON.stringify(state));
-                process.stdout.write('X');
+                if (outState) {
+                    console.log('state', JSON.stringify(state));
+                }
+
+                if (writeImages) {
+                    const image = genImage(cells, state.used, state.rots);
+                    const name = `0000${imgNdx}`.substring((`${imgNdx}`.length));
+
+                    await new Promise((res, rej) => {
+                        image.write(`./${name}.jpeg`, (err, img) => (err ? rej(err) : res(img)));
+                    })
+                    imgNdx += 1;
+                }
 
                 const res = await checkState(cells, state.used, state.rots);
 
                 if (res) {
-                    console.log('res', res);
+                    if (!outState) {
+                        process.stdout.write('X');
+                    }
+                    console.log('\nres', res);
 
                     process.exit();
+                } else {
+                    if (!outState) {
+                        process.stdout.write('#');
+                    }
                 }
             }
         }
